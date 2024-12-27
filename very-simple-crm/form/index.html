@@ -39,7 +39,7 @@
 
             // Redirect to results.html with GET parameters
             const queryString = `?name=${encodeURIComponent(name)}&address=${encodeURIComponent(address)}&phone=${encodeURIComponent(phone)}`;
-            window.location.href = `results.html${queryString}`;
+            window.location.href = `../results${queryString}`;
         };
 
         window.onload = () => {
@@ -62,7 +62,7 @@
             <input type="tel" id="phone" name="phone" placeholder="Your phone number" required>
             
             <button type="submit">Submit</button>
-            <a href="index.html" class="button">Go Back</a>
+            <a href="../" class="button">Go Back</a>
         </form>
     </main>
 </body>
