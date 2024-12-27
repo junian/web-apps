@@ -3,24 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sample Job Board Form</title>
+    <title>Very Simple CRM</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script>
+        const removeAllData = () => {
+            const request = indexedDB.deleteDatabase("SimpleCrmDB");
+
+            request.onsuccess = () => {
+                console.log("Database deleted successfully.");
+                alert("All data has been removed.");
+                location.reload(); // Refresh the page to update the display
+            };
+
+            request.onerror = (e) => {
+                console.error("Error deleting database:", e);
+                alert("Failed to delete the database.");
+            };
+
+            request.onblocked = () => {
+                console.warn("Database deletion is blocked.");
+                // alert("Database deletion is blocked. Please close other tabs using this database and try again.");
+            };
+        };
+
+        const fetchFromIndexedDB = () => {
+            const request = indexedDB.open("SimpleCrmDB", 1);
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains("Customers")) {
+                    db.createObjectStore("Customers", { autoIncrement: true });
+                }
+            };
+
+            request.onsuccess = (event) => {
+                const db = event.target.result;
+                const transaction = db.transaction("Customers", "readonly");
+                const store = transaction.objectStore("Customers");
+                const cursorRequest = store.openCursor();
+                const results = [];
+
+                cursorRequest.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                        results.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        displayResults(results);
+                    }
+                };
+
+                cursorRequest.onerror = (e) => console.error("Error fetching data:", e);
+            };
+
+            request.onerror = (e) => console.error("IndexedDB error:", e);
+        };
+
+        const displayResults = (data) => {
+            const tableBody = document.getElementById("results");
+            tableBody.innerHTML = "";
+            data.forEach((item, index) => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${item.name}</td>
+                    <td>${item.address}</td>
+                    <td>${item.phone}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        };
+
+        window.onload = fetchFromIndexedDB;
+    </script>
 </head>
 <body>
     <main class="container">
-        <h1>Sample Form</h1>
-        <form id="sampleForm" action="results.html" method="GET">
-            <label for="name">Name:</label>
-            <input type="text" id="name" name="name" placeholder="Your name" required>
-            
-            <label for="address">Address:</label>
-            <input type="text" id="address" name="address" placeholder="Your address" required>
-            
-            <label for="phone">Phone:</label>
-            <input type="tel" id="phone" name="phone" placeholder="Your phone number" required>
-            
-            <button type="submit">Submit</button>
-        </form>
+        <h1>Very Simple CRM</h1>
+        <button onclick="window.location.href='form.html'" class="button">New Data</button>
+        <button onclick="removeAllData()" type="reset" class="button">Remove All Data</button>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Address</th>
+                    <th>Phone</th>
+                </tr>
+            </thead>
+            <tbody id="results">
+                <tr><td colspan="4">Loading...</td></tr>
+            </tbody>
+        </table>
     </main>
 </body>
 </html>
