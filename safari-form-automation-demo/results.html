@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Job Board Form</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script>
+        // Parse URL parameters and display them
+        function displayResults() {
+            const params = new URLSearchParams(window.location.search);
+            const name = params.get("name") || "N/A";
+            const address = params.get("address") || "N/A";
+            const phone = params.get("phone") || "N/A";
+
+            document.getElementById("name").textContent = name;
+            document.getElementById("address").textContent = address;
+            document.getElementById("phone").textContent = phone;
+        }
+        window.onload = displayResults;
+    </script>
+</head>
+<body>
+    <main class="container">
+        <h1>Form Submission Results</h1>
+        <p><strong>Name:</strong> <span id="name"></span></p>
+        <p><strong>Address:</strong> <span id="address"></span></p>
+        <p><strong>Phone:</strong> <span id="phone"></span></p>
+        <a href="form.html" class="button">Go Back</a>
+    </main>
+</body>
+</html>
