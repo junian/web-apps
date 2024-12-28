@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Offline To-Do App</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+</head>
+<body>
+  <main class="container">
+    <h1>Offline To-Do App</h1>
+    <form id="todoForm">
+      <input type="text" id="newTask" placeholder="New task..." required />
+      <button type="submit">Add Task</button>
+    </form>
+
+    <ul id="todoList">
+      <!-- To-do list items will be inserted here -->
+    </ul>
+  </main>
+  <script defer src="app.js"></script>
+</body>
+</html>
