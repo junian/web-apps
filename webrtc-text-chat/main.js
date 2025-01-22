@@ -49,7 +49,7 @@ function main() {
   const is_webrtc_initiator = !url_params.has("webrtc_offer");
 
   //var stun_url = "stun.l.google.com:19302";
-  var stun_url = "stun.services.mozilla.org";
+  var stun_url = "stunserver2024.stunprotocol.org:3478";
   if (url_params.has("stun_url")) {
     stun_url = decodeURIComponent(url_params.get("stun_url"));
   }
