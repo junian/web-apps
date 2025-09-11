@@ -1,4 +1,6 @@
-# Junian.dev Lab
+# Vanilla JS + Classless CSS Web Apps
+
+A collection of web app written in Vanilla JS and UI in Classless CSS.
 
 ## Apps
 
