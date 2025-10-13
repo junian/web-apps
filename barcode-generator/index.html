@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barcode 128 Generator</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 2rem;
+    background: #f5f5f5;
+    color: #333;
+  }
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  }
+  input, button, select {
+    padding: 0.5rem;
+    margin: 0.25rem 0;
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 1rem;
+  }
+  svg {
+    background: white;
+    display: block;
+    margin: 1rem auto;
+  }
+  .history {
+    margin-top: 1rem;
+  }
+  .history-item {
+    background: #eee;
+    margin: 0.25rem 0;
+    padding: 0.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .download-btn {
+    margin-top: 0.5rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>Barcode 128 Generator</h2>
+  <input id="textInput" type="text" placeholder="Enter text here...">
+  <button id="generateBtn">Generate Barcode</button>
+  <div id="barcode"></div>
+  <button id="downloadBtn" class="download-btn" style="display:none;">Download SVG</button>
+  <div class="history">
+    <h3>History</h3>
+    <div id="historyList"></div>
+  </div>
+</div>
+<script>
+// IndexedDB setup
+const dbName = 'barcodeDB';
+const storeName = 'history';
+let db;
+
+function openDB() {
+  const request = indexedDB.open(dbName, 1);
+  request.onupgradeneeded = (e) => {
+    const db = e.target.result;
+    db.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+  };
+  request.onsuccess = (e) => {
+    db = e.target.result;
+    loadHistory();
+  };
+}
+
+function addToHistory(text) {
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  store.add({ text, date: new Date() });
+}
+
+function loadHistory() {
+  const tx = db.transaction(storeName, 'readonly');
+  const store = tx.objectStore(storeName);
+  const request = store.getAll();
+  request.onsuccess = (e) => {
+    const items = e.target.result.reverse();
+    const container = document.getElementById('historyList');
+    container.innerHTML = '';
+    items.forEach(i => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.textContent = i.text;
+      div.onclick = () => {
+        document.getElementById('textInput').value = i.text;
+        generateBarcode();
+      };
+      container.appendChild(div);
+    });
+  };
+}
+
+// Code128B implementation (basic subset)
+const code128b = {
+  startB: 104, stop: 106,
+  patterns: [
+    '11011001100','11001101100','11001100110','10010011000','10010001100','10001001100','10011001000','10011000100','10001100100','11001001000',
+    '11001000100','11000100100','10110011100','10011011100','10011001110','10111001100','10011101100','10011100110','11001110010','11001011100',
+    '11001001110','11011100100','11001110100','11101101110','11101001100','11100101100','11100100110','11101100100','11100110100','11100110010',
+    '11011011000','11011000110','11000110110','10100011000','10001011000','10001000110','10110001000','10001101000','10001100010','11010001000',
+    '11000101000','11000100010','10110111000','10110001110','10001101110','10111011000','10111000110','10001110110','11101110110','11010001110',
+    '11000101110','11011101000','11011100010','11011101110','11101011000','11101000110','11100010110','11101101000','11101100010','11100011010',
+    '11101111010','11001000010','11110001010','10100110000','10100001100','10010110000','10010000110','10000101100','10000100110','10110010000',
+    '10110000100','10011010000','10011000010','10000110100','10000110010','11000010010','11001010000','11110111010','11000010100','10001111010',
+    '10100111100','10010111100','10010011110','10111100100','10011110100','10011110010','11110100100','11110010100','11110010010','11011011110',
+    '11011110110','11110110110','10101111000','10100011110','10001011110','10111101000','10111100010','11110101000','11110100010','10111011110',
+    '10111101110','11101011110','11110101110','11010000100','11010010000','11010011100','1100011101011'
+  ]
+};
+
+function encode128B(text) {
+  let values = [code128b.startB];
+  for (let i = 0; i < text.length; i++) {
+    values.push(text.charCodeAt(i) - 32);
+  }
+  let checksum = code128b.startB;
+  for (let i = 0; i < text.length; i++) {
+    checksum += (text.charCodeAt(i) - 32) * (i + 1);
+  }
+  checksum = checksum % 103;
+  values.push(checksum);
+  values.push(code128b.stop);
+  return values.map(v => code128b.patterns[v]).join('');
+}
+
+function generateSVG(pattern) {
+  const barWidth = 2, barHeight = 80;
+  let x = 0;
+  let svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${pattern.length * barWidth}' height='${barHeight}' style='background:white'>`;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '1') {
+      svg += `<rect x='${x}' y='0' width='${barWidth}' height='${barHeight}' fill='black'/>`;
+    }
+    x += barWidth;
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+function generateBarcode() {
+  const text = document.getElementById('textInput').value.trim();
+  if (!text) return;
+  const pattern = encode128B(text);
+  const svg = generateSVG(pattern);
+  document.getElementById('barcode').innerHTML = svg;
+  document.getElementById('downloadBtn').style.display = 'inline-block';
+  addToHistory(text);
+  loadHistory();
+}
+
+document.getElementById('generateBtn').onclick = generateBarcode;
+
+document.getElementById('downloadBtn').onclick = () => {
+  const svgEl = document.querySelector('#barcode svg');
+  if (!svgEl) return;
+  const blob = new Blob([svgEl.outerHTML], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'barcode.svg';
+  a.click();
+};
+
+openDB();
+</script>
+</body>
+</html>
