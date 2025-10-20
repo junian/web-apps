@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Camera Viewer App</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f8f9fa;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 2rem;
+      gap: 1.5rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+
+    select, button {
+      padding: 0.6rem 1rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #f1f1f1;
+    }
+
+    video {
+      width: 480px;
+      height: 360px;
+      background: #000;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    }
+
+    .controls {
+      display: flex;
+      gap: 1rem;
+    }
+
+    @media (max-width: 600px) {
+      video {
+        width: 100%;
+        height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>📸 Camera Viewer</h1>
+  <div class="controls">
+    <select id="cameraSelect"></select>
+    <button id="connectBtn">Connect</button>
+    <button id="pipBtn" disabled>Picture-in-Picture</button>
+  </div>
+  <video id="video" autoplay playsinline></video>
+
+  <script>
+    const cameraSelect = document.getElementById('cameraSelect');
+    const connectBtn = document.getElementById('connectBtn');
+    const pipBtn = document.getElementById('pipBtn');
+    const video = document.getElementById('video');
+    let stream = null;
+
+    async function loadCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+        cameraSelect.innerHTML = '';
+        videoDevices.forEach((device, i) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Camera ${i + 1}`;
+          cameraSelect.appendChild(option);
+        });
+      } catch (err) {
+        alert('Error accessing cameras: ' + err.message);
+      }
+    }
+
+    async function connectCamera() {
+      const deviceId = cameraSelect.value;
+      if (stream) {
+        // Disconnect
+        stream.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+        stream = null;
+        connectBtn.textContent = 'Connect';
+        pipBtn.disabled = true;
+      } else {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: deviceId } }
+          });
+          video.srcObject = stream;
+          connectBtn.textContent = 'Disconnect';
+          pipBtn.disabled = false;
+        } catch (err) {
+          alert('Unable to access selected camera: ' + err.message);
+        }
+      }
+    }
+
+    async function enablePiP() {
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else if (video.srcObject) {
+          await video.requestPictureInPicture();
+        }
+      } catch (err) {
+        console.error('PiP error:', err);
+      }
+    }
+
+    // Initial setup
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(() => loadCameras())
+      .catch(err => alert('Camera permission required: ' + err.message));
+
+    connectBtn.addEventListener('click', connectCamera);
+    pipBtn.addEventListener('click', enablePiP);
+  </script>
+</body>
+</html>
