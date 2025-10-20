@@ -40,7 +40,55 @@
         margin-bottom: 15px;
     }
 
-    select, button {
+    /* Custom select styling — consistent across Chrome/Safari/Firefox */
+    .select-wrapper {
+        position: relative;
+        display: inline-block;
+        width: 200px;
+    }
+
+    select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        width: 100%;
+        font-size: 1rem;
+        padding: 8px 36px 8px 12px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: white;
+        color: var(--text);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        line-height: 1.4;
+    }
+
+    select:hover:not(:disabled) {
+        background: #f0f0f0;
+    }
+
+    select:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    /* Custom dropdown arrow */
+    .select-wrapper::after {
+        content: "";
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 6px solid var(--text);
+        opacity: 0.7;
+    }
+
+    button {
         font-size: 1rem;
         padding: 8px 12px;
         border-radius: var(--radius);
@@ -53,11 +101,11 @@
         gap: 6px;
     }
 
-    button:hover:not(:disabled), select:hover:not(:disabled) {
+    button:hover:not(:disabled) {
         background: #f0f0f0;
     }
 
-    button:disabled, select:disabled {
+    button:disabled {
         opacity: 0.6;
         cursor: not-allowed;
     }
@@ -105,7 +153,9 @@
 <body>
     <h1>Camera Selector with Picture-in-Picture</h1>
     <div id="controls">
-        <select id="cameraSelect"></select>
+        <div class="select-wrapper">
+            <select id="cameraSelect"></select>
+        </div>
         <button id="refreshBtn" title="Refresh Cameras">
             <i data-lucide="refresh-ccw" class="icon"></i> Refresh
         </button>
@@ -140,7 +190,7 @@ let connected = false;
 // Refresh Lucide icons
 lucide.createIcons();
 
-// Get available video input devices
+// List available cameras
 async function listCameras() {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -194,7 +244,7 @@ function stopCamera() {
     updateUIState();
 }
 
-// Update button & status states
+// Update UI state
 function updateUIState() {
     if (connected) {
         connectBtn.innerHTML = `<i data-lucide="x-circle" class="icon"></i> Disconnect`;
@@ -214,7 +264,7 @@ function updateUIState() {
     lucide.createIcons();
 }
 
-// Event handlers
+// Button actions
 connectBtn.addEventListener('click', async () => {
     if (!connected) {
         const id = cameraSelect.value;
@@ -247,7 +297,7 @@ navigator.mediaDevices.getUserMedia({ video: true })
         alert('Please allow camera access to list available devices.');
     });
 
-// Auto-refresh on device change
+// Auto-refresh when devices change
 navigator.mediaDevices.addEventListener('devicechange', listCameras);
 </script>
 </body>
