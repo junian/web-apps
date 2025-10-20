@@ -42,11 +42,14 @@
       border-radius: 12px;
       object-fit: cover;
       box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      transition: transform 0.3s ease;
     }
 
     .controls {
       display: flex;
+      flex-wrap: wrap;
       gap: 1rem;
+      justify-content: center;
     }
 
     @media (max-width: 600px) {
@@ -63,6 +66,8 @@
     <select id="cameraSelect"></select>
     <button id="connectBtn">Connect</button>
     <button id="pipBtn" disabled>Picture-in-Picture</button>
+    <button id="rotateLeftBtn" disabled>↺ Rotate -90°</button>
+    <button id="rotateRightBtn" disabled>↻ Rotate +90°</button>
   </div>
   <video id="video" autoplay playsinline></video>
 
@@ -70,8 +75,11 @@
     const cameraSelect = document.getElementById('cameraSelect');
     const connectBtn = document.getElementById('connectBtn');
     const pipBtn = document.getElementById('pipBtn');
+    const rotateLeftBtn = document.getElementById('rotateLeftBtn');
+    const rotateRightBtn = document.getElementById('rotateRightBtn');
     const video = document.getElementById('video');
     let stream = null;
+    let rotation = 0;
 
     async function loadCameras() {
       try {
@@ -99,6 +107,8 @@
         stream = null;
         connectBtn.textContent = 'Connect';
         pipBtn.disabled = true;
+        rotateLeftBtn.disabled = true;
+        rotateRightBtn.disabled = true;
       } else {
         try {
           stream = await navigator.mediaDevices.getUserMedia({
@@ -107,6 +117,8 @@
           video.srcObject = stream;
           connectBtn.textContent = 'Disconnect';
           pipBtn.disabled = false;
+          rotateLeftBtn.disabled = false;
+          rotateRightBtn.disabled = false;
         } catch (err) {
           alert('Unable to access selected camera: ' + err.message);
         }
@@ -125,6 +137,11 @@
       }
     }
 
+    function rotateVideo(direction) {
+      rotation += direction;
+      video.style.transform = `rotate(${rotation}deg)`;
+    }
+
     // Initial setup
     navigator.mediaDevices.getUserMedia({ video: true })
       .then(() => loadCameras())
@@ -132,6 +149,8 @@
 
     connectBtn.addEventListener('click', connectCamera);
     pipBtn.addEventListener('click', enablePiP);
+    rotateLeftBtn.addEventListener('click', () => rotateVideo(-90));
+    rotateRightBtn.addEventListener('click', () => rotateVideo(90));
   </script>
 </body>
 </html>
