@@ -181,68 +181,102 @@
       // no need to restart drawing; draw loop reads rotation each frame
     }
 
-    // Picture-in-Picture — use hidden video that plays canvas.captureStream()
+    // --- feature detection helpers ---
+    const canVideoPiP = 'requestPictureInPicture' in HTMLVideoElement.prototype;
+    const canCanvasCapture = !!(HTMLCanvasElement.prototype && HTMLCanvasElement.prototype.captureStream);
+    
+    // --- new enablePiP (call directly from click handler) ---
     async function enablePiP() {
       try {
-        // If currently in PiP, exit
+        if (!canVideoPiP) {
+          alert('Picture-in-Picture is not supported in this browser.');
+          return;
+        }
+    
+        // If already in PiP, exit immediately
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
           return;
         }
-
-        if (!canvas.width || !canvas.height) {
-          // wait a tick for canvas to initialize
-          await new Promise(r => setTimeout(r, 100));
-        }
-
-        if (!pipStream) {
-          pipStream = canvas.captureStream(30); // 30fps capture
-        }
-
-        // create/ensure hidden pipVideo in DOM that plays the canvas stream
-        if (!pipVideo) {
-          pipVideo = document.createElement('video');
-          pipVideo.className = 'pip-hidden';
-          pipVideo.autoplay = true;
-          pipVideo.muted = true;
-          pipVideo.playsInline = true;
+    
+        // If we can capture the canvas, prefer that so PiP shows the rotation.
+        if (canCanvasCapture) {
+          // create a hidden video element if not already created
+          if (!pipVideo) {
+            pipVideo = document.createElement('video');
+            pipVideo.className = 'pip-hidden';
+            pipVideo.autoplay = true;
+            pipVideo.muted = true;
+            pipVideo.playsInline = true;
+            document.body.appendChild(pipVideo);
+          }
+    
+          // set up stream (don't await anything that yields back to the event loop)
+          pipStream = canvas.captureStream(30);
           pipVideo.srcObject = pipStream;
-          document.body.appendChild(pipVideo);
-        } else {
-          pipVideo.srcObject = pipStream;
+    
+          // Start playback (do NOT await). Then immediately request PiP so Safari treats it as user activation.
+          // We still handle errors (browser may still reject).
+          const playPromise = pipVideo.play().catch(e => {
+            // ignore play rejection here; we still try PiP
+            console.warn('pipVideo.play() rejected:', e);
+          });
+    
+          // IMPORTANT: call requestPictureInPicture synchronously in the click handler flow
+          try {
+            await pipVideo.requestPictureInPicture();
+          } catch (pipErr) {
+            console.error('requestPictureInPicture failed for pipVideo:', pipErr);
+            // fallback: try requesting PiP on the main video (unrotated)
+            if (video && typeof video.requestPictureInPicture === 'function') {
+              try {
+                await video.requestPictureInPicture();
+                alert('PiP opened with the raw camera (unrotated) as a fallback.');
+              } catch (vErr) {
+                console.error('Fallback requestPictureInPicture on main video failed:', vErr);
+                alert('Picture-in-Picture failed: ' + (vErr.message || vErr));
+              }
+            } else {
+              alert('Picture-in-Picture failed: ' + (pipErr.message || pipErr));
+            }
+          }
+    
+          // optional: await playPromise so any late rejections are logged
+          playPromise.catch(()=>{});
+          return;
         }
-
-        // ensure the hidden video plays
-        await pipVideo.play();
-
-        // request PiP on the hidden video element
-        await pipVideo.requestPictureInPicture();
+    
+        // If canvas.captureStream is not available (common on Safari/iOS), fall back to the raw video
+        // This will NOT show rotation, but it's the only reliable PiP fallback.
+        try {
+          await video.requestPictureInPicture();
+        } catch (err) {
+          console.error('requestPictureInPicture on main video failed:', err);
+          alert('Picture-in-Picture failed: ' + (err.message || err));
+        }
       } catch (err) {
-        console.error('PiP failed:', err);
+        console.error('enablePiP error:', err);
         alert('Picture-in-Picture error: ' + (err.message || err));
       }
     }
-
-    // When leaving PiP, we just keep the hidden video but stop nothing else.
+    
+    // --- cleanup when disconnecting ---
     async function stopPiPIfActive() {
       try {
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
         }
-        if (pipVideo) {
-          // optionally remove pipVideo from DOM when disconnected to clean up
-          pipVideo.pause();
-          pipVideo.srcObject = null;
-          pipVideo.remove();
-          pipVideo = null;
-        }
-        if (pipStream) {
-          // captureStream is tied to canvas; don't "stop" it (no API). Null reference.
-          pipStream = null;
-        }
       } catch (e) {
-        console.warn('Error stopping PiP:', e);
+        console.warn('Error exiting PiP:', e);
       }
+    
+      if (pipVideo) {
+        try { pipVideo.pause(); } catch {}
+        try { pipVideo.srcObject = null; } catch {}
+        pipVideo.remove();
+        pipVideo = null;
+      }
+      pipStream = null;
     }
 
     // initial permissions & camera list
