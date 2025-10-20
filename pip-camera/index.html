@@ -35,7 +35,7 @@
       background: #f1f1f1;
     }
 
-    video {
+    video, canvas {
       width: 480px;
       height: 360px;
       background: #000;
@@ -43,6 +43,10 @@
       object-fit: cover;
       box-shadow: 0 4px 10px rgba(0,0,0,0.15);
       transition: transform 0.3s ease;
+    }
+
+    canvas {
+      display: none;
     }
 
     .controls {
@@ -53,7 +57,7 @@
     }
 
     @media (max-width: 600px) {
-      video {
+      video, canvas {
         width: 100%;
         height: auto;
       }
@@ -69,7 +73,9 @@
     <button id="rotateLeftBtn" disabled>↺ Rotate -90°</button>
     <button id="rotateRightBtn" disabled>↻ Rotate +90°</button>
   </div>
+
   <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
 
   <script>
     const cameraSelect = document.getElementById('cameraSelect');
@@ -78,14 +84,18 @@
     const rotateLeftBtn = document.getElementById('rotateLeftBtn');
     const rotateRightBtn = document.getElementById('rotateRightBtn');
     const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
     let stream = null;
     let rotation = 0;
+    let drawInterval = null;
+    let pipVideoStream = null;
 
     async function loadCameras() {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
-
         cameraSelect.innerHTML = '';
         videoDevices.forEach((device, i) => {
           const option = document.createElement('option');
@@ -109,6 +119,7 @@
         pipBtn.disabled = true;
         rotateLeftBtn.disabled = true;
         rotateRightBtn.disabled = true;
+        stopCanvasDrawing();
       } else {
         try {
           stream = await navigator.mediaDevices.getUserMedia({
@@ -119,6 +130,7 @@
           pipBtn.disabled = false;
           rotateLeftBtn.disabled = false;
           rotateRightBtn.disabled = false;
+          startCanvasDrawing();
         } catch (err) {
           alert('Unable to access selected camera: ' + err.message);
         }
@@ -129,8 +141,12 @@
       try {
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
-        } else if (video.srcObject) {
-          await video.requestPictureInPicture();
+        } else {
+          if (!pipVideoStream) pipVideoStream = canvas.captureStream();
+          const pipVideo = document.createElement('video');
+          pipVideo.srcObject = pipVideoStream;
+          await pipVideo.play();
+          await pipVideo.requestPictureInPicture();
         }
       } catch (err) {
         console.error('PiP error:', err);
@@ -138,8 +154,31 @@
     }
 
     function rotateVideo(direction) {
-      rotation += direction;
-      video.style.transform = `rotate(${rotation}deg)`;
+      rotation = (rotation + direction + 360) % 360;
+    }
+
+    function startCanvasDrawing() {
+      if (drawInterval) clearInterval(drawInterval);
+      drawInterval = setInterval(() => {
+        const { videoWidth: w, videoHeight: h } = video;
+        if (w && h) {
+          canvas.width = w;
+          canvas.height = h;
+          ctx.save();
+          ctx.clearRect(0, 0, w, h);
+          ctx.translate(w / 2, h / 2);
+          ctx.rotate((rotation * Math.PI) / 180);
+          ctx.drawImage(video, -w / 2, -h / 2, w, h);
+          ctx.restore();
+        }
+      }, 33); // ~30fps
+    }
+
+    function stopCanvasDrawing() {
+      if (drawInterval) {
+        clearInterval(drawInterval);
+        drawInterval = null;
+      }
     }
 
     // Initial setup
