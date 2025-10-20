@@ -4,48 +4,101 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Camera Selector with PiP</title>
+<link rel="stylesheet" href="https://unpkg.com/lucide-icons/dist/lucide.css">
 <style>
+    :root {
+        --bg: #f7f7f8;
+        --text: #333;
+        --primary: #0078d4;
+        --border: #ccc;
+        --radius: 8px;
+    }
+
     body {
         font-family: system-ui, sans-serif;
-        background: #f7f7f8;
+        background: var(--bg);
+        color: var(--text);
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: flex-start;
-        height: 100vh;
-        margin: 0;
         padding: 20px;
-        color: #333;
+        margin: 0;
     }
 
     h1 {
-        margin-bottom: 10px;
+        margin: 10px 0 20px;
+        font-size: 1.6rem;
+        text-align: center;
+    }
+
+    #controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
     }
 
     select, button {
         font-size: 1rem;
         padding: 8px 12px;
-        margin: 5px;
-        border: 1px solid #ccc;
-        border-radius: 6px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
         background: white;
         cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
-    button:hover {
-        background: #eee;
+    button:hover:not(:disabled), select:hover:not(:disabled) {
+        background: #f0f0f0;
+    }
+
+    button:disabled, select:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
     }
 
     video {
-        margin-top: 20px;
         width: 100%;
         max-width: 600px;
-        border-radius: 10px;
+        border-radius: 12px;
         background: black;
+        margin-top: 10px;
     }
 
-    #controls {
+    #status {
         margin-top: 10px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        background: gray;
+    }
+
+    .connected {
+        background: #28a745;
+    }
+
+    .disconnected {
+        background: #d33;
+    }
+
+    .icon {
+        width: 16px;
+        height: 16px;
+        display: inline-block;
+        vertical-align: middle;
     }
 </style>
 </head>
@@ -53,108 +106,148 @@
     <h1>Camera Selector with Picture-in-Picture</h1>
     <div id="controls">
         <select id="cameraSelect"></select>
-        <button id="connectBtn">Connect</button>
-        <button id="pipBtn" disabled>Picture-in-Picture</button>
+        <button id="refreshBtn" title="Refresh Cameras">
+            <i data-lucide="refresh-ccw" class="icon"></i> Refresh
+        </button>
+        <button id="connectBtn" title="Connect/Disconnect Camera">
+            <i data-lucide="video" class="icon"></i> Connect
+        </button>
+        <button id="pipBtn" disabled title="Picture-in-Picture">
+            <i data-lucide="picture-in-picture-2" class="icon"></i> PiP
+        </button>
     </div>
+
     <video id="video" autoplay playsinline></video>
 
+    <div id="status">
+        <span class="dot disconnected" id="statusDot"></span>
+        <span id="statusText">Disconnected</span>
+    </div>
+
+<script src="https://unpkg.com/lucide@latest"></script>
 <script>
 const video = document.getElementById('video');
 const cameraSelect = document.getElementById('cameraSelect');
 const connectBtn = document.getElementById('connectBtn');
+const refreshBtn = document.getElementById('refreshBtn');
 const pipBtn = document.getElementById('pipBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
 
 let currentStream = null;
 let connected = false;
+
+// Refresh Lucide icons
+lucide.createIcons();
 
 // Get available video input devices
 async function listCameras() {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const cameras = devices.filter(device => device.kind === 'videoinput');
+        const cameras = devices.filter(d => d.kind === 'videoinput');
 
         cameraSelect.innerHTML = '';
-        cameras.forEach(camera => {
+        cameras.forEach((camera, idx) => {
             const option = document.createElement('option');
             option.value = camera.deviceId;
-            option.text = camera.label || `Camera ${cameraSelect.length + 1}`;
+            option.text = camera.label || `Camera ${idx + 1}`;
             cameraSelect.appendChild(option);
         });
+
+        if (cameras.length === 0) {
+            const opt = document.createElement('option');
+            opt.text = 'No cameras found';
+            opt.disabled = true;
+            cameraSelect.appendChild(opt);
+        }
     } catch (err) {
         console.error('Error listing cameras:', err);
-        alert('Could not access camera list. Please allow permissions.');
+        alert('Could not list cameras. Please allow permission.');
     }
 }
 
-// Start camera stream
+// Start camera
 async function startCamera(deviceId) {
-    if (currentStream) {
-        stopCamera();
-    }
+    if (currentStream) stopCamera();
 
-    const constraints = {
-        video: {
-            deviceId: { exact: deviceId }
-        }
-    };
+    const constraints = { video: { deviceId: { exact: deviceId } } };
 
     try {
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = currentStream;
-        pipBtn.disabled = false;
         connected = true;
-        connectBtn.textContent = 'Disconnect';
+        updateUIState();
     } catch (err) {
-        console.error('Error accessing camera:', err);
-        alert('Failed to start camera. Check permissions or device availability.');
+        console.error('Camera error:', err);
+        alert('Unable to access selected camera.');
     }
 }
 
-// Stop camera stream
+// Stop camera
 function stopCamera() {
     if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
         currentStream = null;
     }
     video.srcObject = null;
-    pipBtn.disabled = true;
     connected = false;
-    connectBtn.textContent = 'Connect';
+    updateUIState();
 }
 
-// Handle connect/disconnect button
+// Update button & status states
+function updateUIState() {
+    if (connected) {
+        connectBtn.innerHTML = `<i data-lucide="x-circle" class="icon"></i> Disconnect`;
+        pipBtn.disabled = false;
+        cameraSelect.disabled = true;
+        refreshBtn.disabled = true;
+        statusDot.className = 'dot connected';
+        statusText.textContent = 'Connected';
+    } else {
+        connectBtn.innerHTML = `<i data-lucide="video" class="icon"></i> Connect`;
+        pipBtn.disabled = true;
+        cameraSelect.disabled = false;
+        refreshBtn.disabled = false;
+        statusDot.className = 'dot disconnected';
+        statusText.textContent = 'Disconnected';
+    }
+    lucide.createIcons();
+}
+
+// Event handlers
 connectBtn.addEventListener('click', async () => {
     if (!connected) {
-        const selectedId = cameraSelect.value;
-        await startCamera(selectedId);
+        const id = cameraSelect.value;
+        await startCamera(id);
     } else {
         stopCamera();
     }
 });
 
-// Handle Picture-in-Picture
+refreshBtn.addEventListener('click', listCameras);
+
 pipBtn.addEventListener('click', async () => {
-    if (!document.pictureInPictureElement) {
-        try {
+    try {
+        if (!document.pictureInPictureElement) {
             await video.requestPictureInPicture();
-        } catch (err) {
-            console.error('Picture-in-Picture error:', err);
-            alert('PiP mode failed. Ensure this is triggered by a user action.');
+        } else {
+            await document.exitPictureInPicture();
         }
-    } else {
-        await document.exitPictureInPicture();
+    } catch (err) {
+        console.error('PiP error:', err);
+        alert('Picture-in-Picture mode failed.');
     }
 });
 
-// Initialize camera list on load
+// Initialize
 navigator.mediaDevices.getUserMedia({ video: true })
     .then(() => listCameras())
     .catch(err => {
-        console.error('Permission denied or error:', err);
+        console.error('Permission error:', err);
         alert('Please allow camera access to list available devices.');
     });
 
-// Refresh camera list when devices change
+// Auto-refresh on device change
 navigator.mediaDevices.addEventListener('devicechange', listCameras);
 </script>
 </body>
