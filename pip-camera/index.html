@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Camera Viewer App</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Camera Viewer — PiP + Rotation Fixed</title>
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -11,61 +11,39 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
       padding: 2rem;
-      gap: 1.5rem;
+      gap: 1.25rem;
     }
-
-    h1 {
-      margin: 0;
-      font-size: 1.5rem;
-    }
-
+    h1 { margin: 0; font-size: 1.25rem; }
+    .controls { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; }
     select, button {
-      padding: 0.6rem 1rem;
-      font-size: 1rem;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      background: white;
-      cursor: pointer;
-      transition: background 0.2s;
+      padding: .5rem .8rem;
+      border-radius: 8px; border:1px solid #ccc; background:white; cursor:pointer;
     }
-
-    button:hover {
-      background: #f1f1f1;
-    }
-
     video, canvas {
-      width: 480px;
-      height: 360px;
+      width: 480px; height: 360px;
       background: #000;
-      border-radius: 12px;
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
       object-fit: cover;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-      transition: transform 0.3s ease;
+      transition: transform .25s ease;
     }
-
-    canvas {
-      display: none;
-    }
-
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      justify-content: center;
-    }
-
-    @media (max-width: 600px) {
-      video, canvas {
-        width: 100%;
-        height: auto;
-      }
+    canvas { display:block; } /* canvas may be hidden visually later for PiP but keep it in DOM */
+    @media (max-width:600px) { video, canvas { width:100%; height:auto; } }
+    /* hidden helper styles for pip video element */
+    .pip-hidden {
+      position: fixed !important;
+      left: -9999px !important;
+      width: 1px !important;
+      height: 1px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
     }
   </style>
 </head>
 <body>
-  <h1>📸 Camera Viewer</h1>
+  <h1>📸 Camera Viewer — PiP + Rotation</h1>
+
   <div class="controls">
     <select id="cameraSelect"></select>
     <button id="connectBtn">Connect</button>
@@ -74,7 +52,7 @@
     <button id="rotateRightBtn" disabled>↻ Rotate +90°</button>
   </div>
 
-  <video id="video" autoplay playsinline></video>
+  <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
 
   <script>
@@ -88,108 +66,213 @@
     const ctx = canvas.getContext('2d');
 
     let stream = null;
-    let rotation = 0;
-    let drawInterval = null;
-    let pipVideoStream = null;
+    let rotation = 0; // degrees: 0,90,180,270...
+    let drawHandle = null;
+    let pipVideo = null; // hidden video element for PiP
+    let pipStream = null;
 
+    // Load camera list (labels appear only after permission)
     async function loadCameras() {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
         cameraSelect.innerHTML = '';
-        videoDevices.forEach((device, i) => {
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.textContent = device.label || `Camera ${i + 1}`;
-          cameraSelect.appendChild(option);
+        videoDevices.forEach((d, i) => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Camera ${i+1}`;
+          cameraSelect.appendChild(opt);
         });
       } catch (err) {
-        alert('Error accessing cameras: ' + err.message);
+        console.error(err);
+        alert('Error enumerating devices: ' + err.message);
       }
     }
 
+    // Connect / Disconnect camera
     async function connectCamera() {
-      const deviceId = cameraSelect.value;
       if (stream) {
-        // Disconnect
+        // disconnect
+        stopDrawing();
+        stopPiPIfActive();
         stream.getTracks().forEach(t => t.stop());
-        video.srcObject = null;
         stream = null;
+        video.srcObject = null;
         connectBtn.textContent = 'Connect';
         pipBtn.disabled = true;
         rotateLeftBtn.disabled = true;
         rotateRightBtn.disabled = true;
-        stopCanvasDrawing();
       } else {
         try {
+          const deviceId = cameraSelect.value;
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: deviceId } }
+            video: deviceId ? { deviceId: { exact: deviceId } } : true,
+            audio: false
           });
           video.srcObject = stream;
+          // ensure video plays (some browsers require play before drawing)
+          await video.play();
           connectBtn.textContent = 'Disconnect';
           pipBtn.disabled = false;
           rotateLeftBtn.disabled = false;
           rotateRightBtn.disabled = false;
-          startCanvasDrawing();
+          startDrawing();
         } catch (err) {
-          alert('Unable to access selected camera: ' + err.message);
+          console.error(err);
+          alert('Could not get camera: ' + err.message);
         }
       }
     }
 
+    // Start canvas drawing loop that respects rotation (handles width/height swap)
+    function startDrawing() {
+      stopDrawing();
+      function draw() {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (!vw || !vh) {
+          drawHandle = requestAnimationFrame(draw);
+          return;
+        }
+
+        // When rotated 90 or 270 degrees, swap canvas dimensions so the rotated image fits
+        const rot = ((rotation % 360) + 360) % 360;
+        let cw = vw, ch = vh;
+        if (rot === 90 || rot === 270) {
+          cw = vh; ch = vw;
+        } else {
+          cw = vw; ch = vh;
+        }
+
+        if (canvas.width !== cw || canvas.height !== ch) {
+          canvas.width = cw;
+          canvas.height = ch;
+        }
+
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Translate & rotate so that we draw video correctly into canvas
+        // We want to draw the camera frame into the canvas with the requested rotation
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(rot * Math.PI / 180);
+
+        // After rotation, drawImage's origin should be adjusted:
+        // Because rotation happens around center, we draw the video centered.
+        ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
+
+        ctx.restore();
+
+        drawHandle = requestAnimationFrame(draw);
+      }
+      drawHandle = requestAnimationFrame(draw);
+    }
+
+    function stopDrawing() {
+      if (drawHandle) {
+        cancelAnimationFrame(drawHandle);
+        drawHandle = null;
+      }
+    }
+
+    // Rotate functions
+    function rotateBy(delta) {
+      rotation = (rotation + delta + 360) % 360;
+      // no need to restart drawing; draw loop reads rotation each frame
+    }
+
+    // Picture-in-Picture — use hidden video that plays canvas.captureStream()
     async function enablePiP() {
+      try {
+        // If currently in PiP, exit
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+          return;
+        }
+
+        if (!canvas.width || !canvas.height) {
+          // wait a tick for canvas to initialize
+          await new Promise(r => setTimeout(r, 100));
+        }
+
+        if (!pipStream) {
+          pipStream = canvas.captureStream(30); // 30fps capture
+        }
+
+        // create/ensure hidden pipVideo in DOM that plays the canvas stream
+        if (!pipVideo) {
+          pipVideo = document.createElement('video');
+          pipVideo.className = 'pip-hidden';
+          pipVideo.autoplay = true;
+          pipVideo.muted = true;
+          pipVideo.playsInline = true;
+          pipVideo.srcObject = pipStream;
+          document.body.appendChild(pipVideo);
+        } else {
+          pipVideo.srcObject = pipStream;
+        }
+
+        // ensure the hidden video plays
+        await pipVideo.play();
+
+        // request PiP on the hidden video element
+        await pipVideo.requestPictureInPicture();
+      } catch (err) {
+        console.error('PiP failed:', err);
+        alert('Picture-in-Picture error: ' + (err.message || err));
+      }
+    }
+
+    // When leaving PiP, we just keep the hidden video but stop nothing else.
+    async function stopPiPIfActive() {
       try {
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
-        } else {
-          if (!pipVideoStream) pipVideoStream = canvas.captureStream();
-          const pipVideo = document.createElement('video');
-          pipVideo.srcObject = pipVideoStream;
-          await pipVideo.play();
-          await pipVideo.requestPictureInPicture();
         }
+        if (pipVideo) {
+          // optionally remove pipVideo from DOM when disconnected to clean up
+          pipVideo.pause();
+          pipVideo.srcObject = null;
+          pipVideo.remove();
+          pipVideo = null;
+        }
+        if (pipStream) {
+          // captureStream is tied to canvas; don't "stop" it (no API). Null reference.
+          pipStream = null;
+        }
+      } catch (e) {
+        console.warn('Error stopping PiP:', e);
+      }
+    }
+
+    // initial permissions & camera list
+    (async function init() {
+      try {
+        // prompt for permission to get labels for cameras
+        await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+          .then(g => {
+            // stop the temporary permission stream
+            g.getTracks().forEach(t => t.stop());
+          })
+          .catch(() => {/* ignore permission denied — we'll handle later */});
+
+        await loadCameras();
       } catch (err) {
-        console.error('PiP error:', err);
+        console.error(err);
       }
-    }
+    })();
 
-    function rotateVideo(direction) {
-      rotation = (rotation + direction + 360) % 360;
-    }
-
-    function startCanvasDrawing() {
-      if (drawInterval) clearInterval(drawInterval);
-      drawInterval = setInterval(() => {
-        const { videoWidth: w, videoHeight: h } = video;
-        if (w && h) {
-          canvas.width = w;
-          canvas.height = h;
-          ctx.save();
-          ctx.clearRect(0, 0, w, h);
-          ctx.translate(w / 2, h / 2);
-          ctx.rotate((rotation * Math.PI) / 180);
-          ctx.drawImage(video, -w / 2, -h / 2, w, h);
-          ctx.restore();
-        }
-      }, 33); // ~30fps
-    }
-
-    function stopCanvasDrawing() {
-      if (drawInterval) {
-        clearInterval(drawInterval);
-        drawInterval = null;
-      }
-    }
-
-    // Initial setup
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(() => loadCameras())
-      .catch(err => alert('Camera permission required: ' + err.message));
-
+    // Event listeners
     connectBtn.addEventListener('click', connectCamera);
+    rotateLeftBtn.addEventListener('click', () => rotateBy(-90));
+    rotateRightBtn.addEventListener('click', () => rotateBy(90));
     pipBtn.addEventListener('click', enablePiP);
-    rotateLeftBtn.addEventListener('click', () => rotateVideo(-90));
-    rotateRightBtn.addEventListener('click', () => rotateVideo(90));
+
+    // Clean up when page unloads
+    window.addEventListener('beforeunload', () => {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stopDrawing();
+    });
   </script>
 </body>
 </html>
