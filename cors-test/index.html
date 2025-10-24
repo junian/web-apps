@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CORS Demo App</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; }
+  pre { background: #f5f5f5; padding: 1rem; border-radius: 8px; white-space: pre-wrap; }
+  button, input { font-size: 1rem; margin-top: 1rem; }
+  input { width: 100%; max-width: 500px; }
+</style>
+</head>
+<body>
+<h1>Fetch External HTML Page (CORS Test)</h1>
+<p>Enter an external URL to fetch (e.g. <code>https://example.com</code>)</p>
+<input type="text" id="url" placeholder="https://example.com">
+<button id="fetchBtn">Fetch</button>
+
+<h2>Console Log Output</h2>
+<pre id="log"></pre>
+
+<script>
+const logEl = document.getElementById('log');
+const log = (...args) => {
+  console.log(...args);
+  logEl.textContent += args.join(' ') + '\n';
+};
+
+document.getElementById('fetchBtn').addEventListener('click', async () => {
+  const url = document.getElementById('url').value.trim();
+  if (!url) return log('⚠️ Please enter a valid URL.');
+  
+  log(`\nFetching: ${url} ...`);
+  try {
+    const res = await fetch(url);
+    const text = await res.text();
+    log(`✅ Success! Status: ${res.status}`);
+    log('--- Response Snippet ---');
+    log(text.substring(0, 300) + '...');
+  } catch (err) {
+    log(`❌ Error: ${err.message}`);
+    log('💡 This is likely a CORS issue if you tried to fetch from a different domain.');
+  }
+});
+</script>
+</body>
+</html>
