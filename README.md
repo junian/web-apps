@@ -10,3 +10,4 @@ A collection of web app written in Vanilla JS and UI in Classless CSS.
 - [Barcode Generator](./barcode-generator/)
 - [Picture-in-Picture Camera](./pip-camera/)
 - [CORS Test](./cors-test/)
+- [Canonical URL Checker](./canonical-url-checker/)
