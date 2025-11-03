@@ -8,8 +8,6 @@ nav_excluded: false
 search_excluded: false
 ---
 
-{% raw %}
-
 <h2>Barcode 128 Generator</h2>
 <input id="textInput" type="text" placeholder="Enter text here...">
 <button id="generateBtn">Generate Barcode</button>
@@ -21,7 +19,6 @@ search_excluded: false
 </div>
 
 <style>
-  
   main input, main button, main select {
     padding: 0.5rem;
     margin: 0.25rem 0;
@@ -50,7 +47,7 @@ search_excluded: false
 </style>
 
 <script>
-// IndexedDB setup
+/* IndexedDB setup */
 const dbName = 'barcodeDB';
 const storeName = 'history';
 let db;
@@ -94,7 +91,7 @@ function loadHistory() {
   };
 }
 
-// Code128B implementation (basic subset)
+/* Code128B implementation (basic subset) */
 const code128b = {
   startB: 104, stop: 106,
   patterns: [
@@ -166,5 +163,3 @@ document.getElementById('downloadBtn').onclick = () => {
 
 openDB();
 </script>
-
-{% endraw %}
