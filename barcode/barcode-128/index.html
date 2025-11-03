@@ -1,63 +1,52 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Barcode 128 Generator</title>
+---
+layout: default
+title: Barcode 128
+description: An online tool to generate Barcode 128
+
+parent: Barcode
+nav_excluded: false
+search_excluded: false
+---
+
+<h2>Barcode 128 Generator</h2>
+<input id="textInput" type="text" placeholder="Enter text here...">
+<button id="generateBtn">Generate Barcode</button>
+<div id="barcode"></div>
+<button id="downloadBtn" class="download-btn" style="display:none;">Download SVG</button>
+<div class="history">
+  <h3>History</h3>
+  <div id="historyList"></div>
+</div>
+
 <style>
-  body {
-    font-family: system-ui, sans-serif;
-    margin: 2rem;
-    background: #f5f5f5;
-    color: #333;
-  }
-  .container {
-    max-width: 600px;
-    margin: 0 auto;
-    background: white;
-    padding: 1.5rem;
-    border-radius: 12px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-  }
-  input, button, select {
+  
+  main input, main button, main select {
     padding: 0.5rem;
     margin: 0.25rem 0;
     width: 100%;
     box-sizing: border-box;
     font-size: 1rem;
   }
-  svg {
+  main svg {
     background: white;
     display: block;
     margin: 1rem auto;
   }
-  .history {
+  main .history {
     margin-top: 1rem;
   }
-  .history-item {
+  main .history-item {
     background: #eee;
     margin: 0.25rem 0;
     padding: 0.5rem;
     border-radius: 8px;
     cursor: pointer;
   }
-  .download-btn {
+  main .download-btn {
     margin-top: 0.5rem;
   }
 </style>
-</head>
-<body>
-<div class="container">
-  <h2>Barcode 128 Generator</h2>
-  <input id="textInput" type="text" placeholder="Enter text here...">
-  <button id="generateBtn">Generate Barcode</button>
-  <div id="barcode"></div>
-  <button id="downloadBtn" class="download-btn" style="display:none;">Download SVG</button>
-  <div class="history">
-    <h3>History</h3>
-    <div id="historyList"></div>
-  </div>
-</div>
+
 <script>
 // IndexedDB setup
 const dbName = 'barcodeDB';
@@ -175,5 +164,3 @@ document.getElementById('downloadBtn').onclick = () => {
 
 openDB();
 </script>
-</body>
-</html>
