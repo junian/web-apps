@@ -1,3 +1,12 @@
+---
+title: Home
+description: A collection of web app written in Vanilla JS and UI in Classless CSS.
+
+nav_order: 1
+nav_excluded: false
+search_excluded: false
+---
+
 # Vanilla JS + Classless CSS Web Apps
 
 A collection of web app written in Vanilla JS and UI in Classless CSS.
