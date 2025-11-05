@@ -6,4 +6,6 @@
 
 Experimental Web Apps in Vanilla HTML, CSS, and JS. For experiment, prototyping, and fun.
 
+[**Start Here**](https://www.junian.dev/web-apps/)
+
 </div>
