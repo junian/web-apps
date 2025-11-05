@@ -99,7 +99,7 @@ heading_anchors: true
 
 # Aux links for the upper right navigation
 aux_links:
-  "Junian.dev":
+  "Home":
     - "https://www.junian.dev/"
 
 # Makes Aux links open in a new tab. Default is false
