@@ -3,7 +3,7 @@ description: A collection of mini web apps written in Vanilla HTML, CSS, and Jav
 show_downloads: false
 google_analytics: G-MKQK789F6L
 # theme: just-the-docs
-remote_theme: junian/just-the-docs
+remote_theme: junian/jekyll-jtdocs
 
 # markdown: CommonMarkGhPages
 # commonmark:
