@@ -7,9 +7,14 @@ nav_excluded: false
 search_excluded: false
 ---
 
-# Vanilla JS + Classless CSS Web Apps
+<p><img src="https://raw.githubusercontent.com/junian/commons-media/refs/heads/master/svg/google-chrome-logo.svg" height="128px" /></p>
+{: .text-center .mx-auto }
 
-A collection of web app written in Vanilla JS and UI in Classless CSS.
+# Web Apps
+{: .text-center .mx-auto .fs-9 }
+
+Experimental Web Apps in Vanilla HTML, CSS, and JS. For experiment, prototyping, and fun.
+{: .text-center .mx-auto .fs-6 .fw-300 }
 
 ## Apps
 
