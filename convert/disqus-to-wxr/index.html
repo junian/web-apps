@@ -1,0 +1,381 @@
+---
+layout: default
+title: Disqus to WXR Converter
+description: Convert Disqus XML export into WordPress eXtended RSS (WXR) comments.
+parent: Web
+nav_excluded: false
+search_excluded: false
+---
+
+<h1>Disqus → WXR Converter</h1>
+<p>Paste or upload your <code>disqus.xml</code> export and convert it to a WordPress WXR comments file.</p>
+
+<!-- Main UI -->
+
+<main>
+  <label>Load Disqus XML file: <input id="file" type="file" accept=".xml,text/xml" /></label>
+  <div>
+    <label>Or paste Disqus XML here:</label><br/>
+    <textarea id="input" rows="12" style="width:100%;" placeholder="Paste disqus.xml content here"></textarea>
+  </div>
+
+  <div style="margin-top:8px;">
+    <button id="convert">Convert to WXR</button>
+    <button id="download" disabled>Download WXR</button>
+    <span id="status" aria-live="polite" style="margin-left:12px;"></span>
+  </div>
+
+  <div style="margin-top:12px;">
+    <label>Output (WXR):</label><br/>
+    <textarea id="output" rows="18" style="width:100%;font-family:monospace;" readonly></textarea>
+  </div>
+
+  <div id="meta" style="margin-top:8px;font-size:90%;color:#333;"></div>
+
+  <style>
+    /* All CSS inside main as requested */
+    main { display:block; max-width:900px; margin:16px 0; }
+    label { display:block; margin:8px 0 4px 0; }
+    input[type="file"] { margin-left:6px; }
+    button { padding:8px 12px; margin-right:8px; }
+    textarea { box-sizing:border-box; padding:8px; }
+    code { background:#f4f4f4; padding:2px 4px; border-radius:3px; }
+  </style>
+
+</main>
+
+<script>
+/*
+  Disqus -> WXR converter
+  - Supports Disqus XML with threads and posts (posts have dsq:id attributes).
+  - Generates WXR with <item> per thread and <wp:comment> per post.
+  - Parent relationships preserved by mapping Disqus post dsq:id -> generated wp:comment_id.
+  - Minimal fields: comment_author, comment_date_gmt, comment_content, comment_approved, comment_parent.
+  - Provides download as wxr.xml blob.
+*/
+
+(function(){
+  const fileInput = document.getElementById('file');
+  const textarea = document.getElementById('input');
+  const output = document.getElementById('output');
+  const convertBtn = document.getElementById('convert');
+  const downloadBtn = document.getElementById('download');
+  const status = document.getElementById('status');
+  const meta = document.getElementById('meta');
+
+  fileInput.addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if(!f) return;
+    const text = await f.text();
+    textarea.value = text;
+    status.textContent = `Loaded "${f.name}" (${Math.round(f.size/1024)} KB)`;
+  });
+
+  convertBtn.addEventListener('click', () => {
+    const xmlText = textarea.value.trim();
+    if(!xmlText) { status.textContent = 'No input provided.'; return; }
+    try {
+      const wxr = convertDisqusToWXR(xmlText);
+      output.value = wxr;
+      status.textContent = 'Conversion complete.';
+      downloadBtn.disabled = false;
+      meta.innerHTML = `Threads: ${window._wxrCounts?.threads||0} • Comments: ${window._wxrCounts?.comments||0}`;
+      /* prepare download */
+      const blob = new Blob([wxr], {type:'application/xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      downloadBtn.href = url;
+      downloadBtn.download = 'wxr.xml';
+      /* Make download button trigger programmatic download when clicked */
+      downloadBtn.onclick = () => {
+        /* revoke after a bit */
+        setTimeout(()=>URL.revokeObjectURL(url), 10000);
+      };
+    } catch (err) {
+      console.error(err);
+      status.textContent = 'Error: ' + err.message;
+      output.value = '';
+      downloadBtn.disabled = true;
+    }
+  });
+
+  /* convert function */
+  function convertDisqusToWXR(xmlText) {
+    /* parse XML */
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'application/xml');
+    /* detect parseerror */
+    if (doc.querySelector('parsererror')) {
+      throw new Error('Invalid XML input.');
+    }
+
+    /* Utility: get nodes by local name (handles namespaces) */
+    function getNodesByLocalName(root, name) {
+      /* getElementsByTagNameNS with wildcard for namespace */
+      return Array.from(root.getElementsByTagNameNS('*', name));
+    }
+    function getChildLocal(parent, name) {
+      if(!parent) return null;
+      for (let i=0;i<parent.childNodes.length;i++){
+        const n = parent.childNodes[i];
+        if(n.nodeType===1 && (n.localName===name || n.nodeName===name)) return n;
+      }
+      return null;
+    }
+    function getChildText(parent, name) {
+      const c = getChildLocal(parent, name);
+      if(!c) return '';
+      return c.textContent || '';
+    }
+
+    /* Build map of threads: id -> threadElement */
+    const threads = getNodesByLocalName(doc, 'thread') || [];
+    const threadsById = {};
+    threads.forEach(t=>{
+      const id = t.getAttribute('dsq:id') || t.getAttribute('id') || '';
+      threadsById[id] = t;
+    });
+
+    /* Collect posts */
+    const posts = getNodesByLocalName(doc, 'post') || [];
+
+    /* We'll assign incremental wp:comment_id starting at 1 */
+    let nextCommentId = 1;
+    const postIdToWpId = {}; /* dsq post id -> wp id */
+
+    /* Pre-assign ids so parents can resolve even if parent appears after child */
+    posts.forEach(p => {
+      const dsqid = p.getAttribute('dsq:id') || '';
+      if(dsqid) {
+        postIdToWpId[dsqid] = nextCommentId++;
+      }
+    });
+
+    /* Group posts by thread */
+    const commentsByThread = {};
+    posts.forEach(p => {
+      /* find thread reference node <thread dsq:id="..."/> */
+      const threadRef = getChildLocal(p, 'thread') || Array.from(p.getElementsByTagNameNS('*','thread'))[0];
+      let threadId = '';
+      if(threadRef) {
+        /* threadRef may be an element with attribute dsq:id */
+        threadId = threadRef.getAttribute('dsq:id') || threadRef.textContent || '';
+      } else {
+        /* fallback: some exports include <thread dsq:id="..."/> as attribute on post */
+        threadId = p.getAttribute('thread') || '';
+      }
+      if(!threadId) threadId = 'unknown-thread';
+      if(!commentsByThread[threadId]) commentsByThread[threadId] = [];
+      commentsByThread[threadId].push(p);
+    });
+
+    /* Helper: format date to "YYYY-MM-DD HH:MM:SS" GMT (UTC) */
+    function formatGMT(dateStr) {
+      if(!dateStr) return '';
+      const d = new Date(dateStr);
+      if(isNaN(d.getTime())) return '';
+      const Y = d.getUTCFullYear();
+      const M = String(d.getUTCMonth()+1).padStart(2,'0');
+      const D = String(d.getUTCDate()).padStart(2,'0');
+      const hh = String(d.getUTCHours()).padStart(2,'0');
+      const mm = String(d.getUTCMinutes()).padStart(2,'0');
+      const ss = String(d.getUTCSeconds()).padStart(2,'0');
+      return `${Y}-${M}-${D} ${hh}:${mm}:${ss}`;
+    }
+
+    /* Build header of WXR */
+    const header = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+`<rss version="2.0"
+  xmlns:content="http://purl.org/rss/1.0/modules/content/"
+  xmlns:dsq="http://www.disqus.com/"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:wp="http://wordpress.org/export/1.0/"
+>
+  <channel>\n`;
+
+    const footer = `  </channel>\n</rss>\n`;
+
+    /* For each thread, create <item> block */
+    const items = [];
+
+    Object.keys(threadsById).forEach(threadId => {
+      const t = threadsById[threadId];
+      const title = getChildText(t, 'title') || '';
+      const link = getChildText(t, 'link') || '';
+      const content = getChildText(t, 'message') || '';
+      const createdAt = getChildText(t, 'createdAt') || '';
+      const postDateGmt = formatGMT(createdAt) || '';
+
+      /* Start item */
+      let item = `    <item>\n`;
+      item += `      <title>${escapeXml(title)}</title>\n`;
+      item += `      <link>${escapeXml(link)}</link>\n`;
+      item += `      <content:encoded><![CDATA[${content}]]></content:encoded>\n`;
+      item += `      <dsq:thread_identifier>${escapeXml(threadId)}</dsq:thread_identifier>\n`;
+      if(postDateGmt) item += `      <wp:post_date_gmt>${postDateGmt}</wp:post_date_gmt>\n`;
+      /* comment_status - unknown in disqus export; set to open */
+      item += `      <wp:comment_status>open</wp:comment_status>\n`;
+
+      /* Add comments for this thread */
+      const comments = commentsByThread[threadId] || [];
+      /* sort comments by createdAt ascending for natural order */
+      comments.sort((a,b)=>{
+        const da = new Date(getChildText(a,'createdAt') || '');
+        const db = new Date(getChildText(b,'createdAt') || '');
+        return (da - db);
+      });
+
+      comments.forEach(p=>{
+        const dsqPostId = p.getAttribute('dsq:id') || '';
+        const wpId = postIdToWpId[dsqPostId] || (nextCommentId++);
+        const authorName = getChildText(p, 'name') || getChildText(getChildLocal(p,'author'),'name') || '';
+        /* try author node */
+        const authNode = getChildLocal(p, 'author') || getChildLocal(p, 'Author') || null;
+        const authorEmail = authNode ? (getChildText(authNode,'email') || '') : '';
+        const authorUrl = authNode ? (getChildText(authNode,'url') || '') : '';
+        const authorUsername = authNode ? (getChildText(authNode,'username') || '') : '';
+        const created = getChildText(p, 'createdAt') || '';
+        const commentDateGmt = formatGMT(created) || '';
+        const messageNode = getChildLocal(p, 'message');
+        /* messages often wrapped in CDATA; extract inner XML/text */
+        let message = messageNode ? getNodeInnerXml(messageNode) : '';
+        if(message === '') message = p.textContent || '';
+        /* approval: if isDeleted or isSpam true => 0, else 1 */
+        const isDeleted = (getChildText(p,'isDeleted')||'').toLowerCase() === 'true';
+        const isSpam = (getChildText(p,'isSpam')||'').toLowerCase() === 'true';
+        const approved = (isDeleted || isSpam) ? '0' : '1';
+        /* parent mapping */
+        let parentId = 0;
+        const parentNode = getChildLocal(p, 'parent');
+        if(parentNode) {
+          const parentDsq = parentNode.getAttribute('dsq:id') || parentNode.getAttribute('dsq:parent') || parentNode.textContent || '';
+          if(parentDsq && postIdToWpId[parentDsq]) parentId = postIdToWpId[parentDsq];
+          else parentId = 0;
+        }
+
+        /* dsq:remote object (best effort: use authorUsername or authorName) */
+        let remote = '';
+        if(authorUsername || dsqPostId) {
+          remote += `        <dsq:remote>\n`;
+          if(authorUsername) remote += `          <dsq:id>${escapeXml(authorUsername)}</dsq:id>\n`;
+          else remote += `          <dsq:id>${escapeXml(dsqPostId)}</dsq:id>\n`;
+          /* no avatar info available in Disqus export by default */
+          remote += `        </dsq:remote>\n`;
+        }
+
+        /* assemble wp:comment */
+        item += `      <wp:comment>\n`;
+        if(remote) item += remote;
+        item += `        <wp:comment_id>${wpId}</wp:comment_id>\n`;
+        item += `        <wp:comment_author>${escapeXml(authorName)}</wp:comment_author>\n`;
+        item += `        <wp:comment_author_email>${escapeXml(authorEmail)}</wp:comment_author_email>\n`;
+        item += `        <wp:comment_author_url>${escapeXml(authorUrl)}</wp:comment_author_url>\n`;
+        item += `        <wp:comment_author_IP></wp:comment_author_IP>\n`;
+        if(commentDateGmt) item += `        <wp:comment_date_gmt>${commentDateGmt}</wp:comment_date_gmt>\n`;
+        item += `        <wp:comment_content><![CDATA[${message}]]></wp:comment_content>\n`;
+        item += `        <wp:comment_approved>${approved}</wp:comment_approved>\n`;
+        item += `        <wp:comment_parent>${parentId}</wp:comment_parent>\n`;
+        item += `      </wp:comment>\n`;
+      });
+
+      item += `    </item>\n`;
+      items.push(item);
+    });
+
+    /* There may be comments for threads not present in threadsById (thread references missing) */
+    /* include them as items with dsq:thread_identifier = threadId and no title/link */
+    Object.keys(commentsByThread).forEach(threadId => {
+      if(threadsById[threadId]) return; /* already handled */
+      const comments = commentsByThread[threadId] || [];
+      let item = `    <item>\n`;
+      item += `      <title></title>\n`;
+      item += `      <link></link>\n`;
+      item += `      <content:encoded><![CDATA[]]></content:encoded>\n`;
+      item += `      <dsq:thread_identifier>${escapeXml(threadId)}</dsq:thread_identifier>\n`;
+      item += `      <wp:comment_status>open</wp:comment_status>\n`;
+      comments.sort((a,b)=>{
+        const da = new Date(getChildText(a,'createdAt') || '');
+        const db = new Date(getChildText(b,'createdAt') || '');
+        return (da - db);
+      });
+      comments.forEach(p=>{
+        const dsqPostId = p.getAttribute('dsq:id') || '';
+        const wpId = postIdToWpId[dsqPostId] || (nextCommentId++);
+        const authorName = getChildText(p, 'name') || getChildText(getChildLocal(p,'author'),'name') || '';
+        const authNode = getChildLocal(p,'author') || null;
+        const authorEmail = authNode ? (getChildText(authNode,'email') || '') : '';
+        const authorUrl = authNode ? (getChildText(authNode,'url') || '') : '';
+        const authorUsername = authNode ? (getChildText(authNode,'username') || '') : '';
+        const created = getChildText(p, 'createdAt') || '';
+        const commentDateGmt = formatGMT(created) || '';
+        const messageNode = getChildLocal(p, 'message');
+        let message = messageNode ? getNodeInnerXml(messageNode) : '';
+        if(message === '') message = p.textContent || '';
+        const isDeleted = (getChildText(p,'isDeleted')||'').toLowerCase() === 'true';
+        const isSpam = (getChildText(p,'isSpam')||'').toLowerCase() === 'true';
+        const approved = (isDeleted || isSpam) ? '0' : '1';
+        let parentId = 0;
+        const parentNode = getChildLocal(p, 'parent');
+        if(parentNode) {
+          const parentDsq = parentNode.getAttribute('dsq:id') || parentNode.textContent || '';
+          if(parentDsq && postIdToWpId[parentDsq]) parentId = postIdToWpId[parentDsq];
+          else parentId = 0;
+        }
+        let remote = '';
+        if(authorUsername || dsqPostId) {
+          remote += `        <dsq:remote>\n`;
+          if(authorUsername) remote += `          <dsq:id>${escapeXml(authorUsername)}</dsq:id>\n`;
+          else remote += `          <dsq:id>${escapeXml(dsqPostId)}</dsq:id>\n`;
+          remote += `        </dsq:remote>\n`;
+        }
+        item += `      <wp:comment>\n`;
+        if(remote) item += remote;
+        item += `        <wp:comment_id>${wpId}</wp:comment_id>\n`;
+        item += `        <wp:comment_author>${escapeXml(authorName)}</wp:comment_author>\n`;
+        item += `        <wp:comment_author_email>${escapeXml(authorEmail)}</wp:comment_author_email>\n`;
+        item += `        <wp:comment_author_url>${escapeXml(authorUrl)}</wp:comment_author_url>\n`;
+        item += `        <wp:comment_author_IP></wp:comment_author_IP>\n`;
+        if(commentDateGmt) item += `        <wp:comment_date_gmt>${commentDateGmt}</wp:comment_date_gmt>\n`;
+        item += `        <wp:comment_content><![CDATA[${message}]]></wp:comment_content>\n`;
+        item += `        <wp:comment_approved>${approved}</wp:comment_approved>\n`;
+        item += `        <wp:comment_parent>${parentId}</wp:comment_parent>\n`;
+        item += `      </wp:comment>\n`;
+      });
+      item += `    </item>\n`;
+      items.push(item);
+    });
+
+    const wxr = header + items.join('') + footer;
+
+    /* store counts for UI */
+    const threadCount = Object.keys(threadsById).length + Object.keys(commentsByThread).filter(t=>!threadsById[t]).length;
+    const commentCount = posts.length;
+    window._wxrCounts = { threads: threadCount, comments: commentCount };
+
+    return wxr;
+  }
+
+  /* Helper: escape for XML element text (not CDATA) */
+  function escapeXml(unsafe) {
+    if(unsafe === null || unsafe === undefined) return '';
+    return String(unsafe)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  /* Return inner XML of a node (keeps children markup) */
+  function getNodeInnerXml(node) {
+    /* For browser that support XMLSerializer */
+    const serializer = new XMLSerializer();
+    let out = '';
+    Array.from(node.childNodes).forEach(ch => {
+      out += serializer.serializeToString(ch);
+    });
+    /* If the node contains CDATA sections, serialized form will include them. */
+    return out.trim();
+  }
+
+})();
+</script>
