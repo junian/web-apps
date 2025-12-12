@@ -1,0 +1,381 @@
+---
+layout: default
+title: TOML → YAML Converter
+description: Convert TOML (or TOML front-matter wrapped with +++) into YAML. Upload a file or paste TOML; click Convert. Includes a Copy button for YAML output.
+parent: Web
+nav_excluded: false
+search_excluded: false
+---
+
+<h1>TOML → YAML Converter</h1>
+<p>Paste TOML or upload a .toml / text file. If the input contains TOML front-matter wrapped with <code>+++</code>, the output will be returned wrapped with <code>---</code> YAML front-matter markers.</p>
+
+<label>Upload TOML file <input type="file" accept=".toml,text/*"> </label>
+
+<label>Or paste TOML here
+
+  <textarea id="input" rows="12" placeholder="Paste TOML or TOML front-matter here..."></textarea>
+
+</label>
+
+<div>
+  <button id="convert">Convert to YAML</button>
+  <button id="clear">Clear</button>
+</div>
+
+<label>YAML output
+
+  <textarea id="output" rows="14" readonly placeholder="YAML will appear here..."></textarea>
+
+</label>
+
+<div>
+  <button id="copy">Copy YAML</button>
+  <span id="note" aria-live="polite"></span>
+</div>
+
+<style>
+  /* Basic, classless styling placed inside the document */
+  :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;line-height:1.4}
+  h1{font-size:1.3rem;margin:0 0 .25rem}
+  p{margin:.25rem 0 1rem;color:#444}
+  label{display:block;margin:.6rem 0}
+  input[type="file"]{display:block;margin-top:.4rem}
+  textarea{width:100%;box-sizing:border-box;padding:.6rem;border:1px solid #ccc;border-radius:6px;background:#fff;font-family:monospace}
+  button{margin:.4rem .2rem;padding:.5rem .8rem;border-radius:6px;border:1px solid #888;background:#f6f6f6;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  #note{margin-left:1rem;color:#0a66c2}
+  @media(min-width:700px){textarea#input,textarea#output{max-width:900px}}
+</style>
+
+<script>
+  /* Utility: set text in the note area briefly */
+  function setNote(text, timeoutMs){
+    var n = document.getElementById('note');
+    n.textContent = text || '';
+    if(timeoutMs){
+      setTimeout(function(){ n.textContent = ''; }, timeoutMs);
+    }
+  }
+
+  /* Read file input and place content into the input textarea */
+  (function(){
+    var fileInput = document.querySelector('input[type=file]');
+    var inputTA = document.getElementById('input');
+    fileInput.addEventListener('change', function(e){
+      var f = fileInput.files && fileInput.files[0];
+      if(!f) return;
+      var reader = new FileReader();
+      reader.onload = function(ev){
+        inputTA.value = ev.target.result || '';
+        setNote('File loaded.', 2500);
+      };
+      reader.readAsText(f);
+    });
+  })();
+
+  /* Minimal TOML parser — best-effort implementation for common, practical TOML usage.
+     Supports:
+     - key = value (strings, numbers, booleans)
+     - arrays (basic)
+     - tables [a] and nested tables a.b
+     - inline tables { a = 1, b = "x" }
+     It is not a full TOML spec implementation; it aims to convert common front-matter TOML into YAML. */
+  function parseToml(tomlText){
+    var lines = tomlText.split(/\r?\n/);
+    var obj = {};
+    var currentPath = []; /* array of keys representing current table */
+    var isFront = false;
+
+    /* helper: assign value at path */
+    function assignAtPath(pathArr, key, val){
+      var target = obj;
+      for(var i = 0; i < pathArr.length; i++){
+        var p = pathArr[i];
+        if(!(p in target)) target[p] = {};
+        if(typeof target[p] !== 'object' || Array.isArray(target[p])) {
+          /* if conflict, overwrite with object */
+          target[p] = {};
+        }
+        target = target[p];
+      }
+      target[key] = val;
+    }
+
+    /* helper: set whole table object at path if not exists */
+    function ensureTable(pathArr){
+      var target = obj;
+      for(var i = 0; i < pathArr.length; i++){
+        var p = pathArr[i];
+        if(!(p in target)) target[p] = {};
+        if(typeof target[p] !== 'object' || Array.isArray(target[p])){
+          target[p] = {};
+        }
+        target = target[p];
+      }
+      return target;
+    }
+
+    /* parse a TOML value into JS value — best-effort */
+    function parseValue(vstr){
+      vstr = vstr.trim();
+      if(vstr === '') return '';
+      /* booleans */
+      if(/^true$/i.test(vstr)) return true;
+      if(/^false$/i.test(vstr)) return false;
+      /* unquoted datetime: preserve as string */
+      if(/^\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?)?(Z|[+\-]\d{2}:\d{2})?$/.test(vstr)){
+        return vstr;
+      }
+      /* strings: double or single quoted */
+      if(/^"/.test(vstr) || /^'/.test(vstr)){
+        var quote = vstr[0];
+        if(vstr.length >= 2 && vstr[vstr.length-1] === quote){
+          var inner = vstr.slice(1, -1);
+          /* unescape basic escapes for double quotes */
+          if(quote === '"'){
+            inner = inner.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          }
+          return inner;
+        } else {
+          /* fallback: return as-is without quotes */
+          return vstr.replace(/^['"]|['"]$/g,'');
+        }
+      }
+      /* arrays */
+      if(/^\[.*\]$/.test(vstr)){
+        try{
+          /* convert single-quoted elements to double-quoted to make JSON parseable */
+          var jsonish = vstr.replace(/'([^']*)'/g, function(_, g){ return JSON.stringify(g); });
+          return JSON.parse(jsonish);
+        }catch(e){
+          /* fallback: split by comma */
+          var inner = vstr.slice(1,-1).trim();
+          if(inner === '') return [];
+          var parts = inner.split(/\s*,\s*/);
+          return parts.map(function(p){ return parseValue(p); });
+        }
+      }
+      /* inline table { a = 1, b = "x" } */
+      if(/^\{.*\}$/.test(vstr)){
+        try{
+          var inside = vstr.slice(1,-1).trim();
+          /* transform to JSON-ish: replace key = with "key": and single quotes with double */
+          var kv = inside.replace(/([A-Za-z0-9_\-]+)\s*=/g, function(_, k){ return JSON.stringify(k) + ':'; });
+          kv = kv.replace(/'([^']*)'/g, function(_, g){ return JSON.stringify(g); });
+          var parsed = JSON.parse('{' + kv + '}');
+          return parsed;
+        }catch(e){
+          return vstr;
+        }
+      }
+      /* numbers: integer or float */
+      if(/^[+-]?\d+$/.test(vstr)) return parseInt(vstr, 10);
+      if(/^[+-]?\d*\.\d+$/.test(vstr)) return parseFloat(vstr);
+      /* fallback: bare string */
+      return vstr;
+    }
+
+    for(var i = 0; i < lines.length; i++){
+      var raw = lines[i];
+      var line = raw.trim();
+      if(line === '') continue;
+      /* comments: ignore full-line comments */
+      if(line.startsWith('#')) continue;
+      /* handle front-matter delimiter handling externally; parser expects plain TOML */
+      /* table header */
+      var tableMatch = line.match(/^\[([^\]]+)\]\s*$/);
+      if(tableMatch){
+        var path = tableMatch[1].trim();
+        /* dotted or array of tables support not implemented; treat dotted path */
+        var parts = path.split('.');
+        currentPath = parts.map(function(p){ return p.replace(/^\s+|\s+$/g,''); });
+        ensureTable(currentPath);
+        continue;
+      }
+      /* key = value (allow keys with quotes or bare keys) */
+      var kvMatch = line.match(/^([^=]+)=(.*)$/);
+      if(kvMatch){
+        var rawKey = kvMatch[1].trim();
+        var key = rawKey.replace(/^["']|["']$/g,'');
+        var rawVal = kvMatch[2];
+        /* remove inline comments after value, but not inside quotes — best-effort: if a # occurs after a space and is not inside quotes remove rest */
+        var val = rawVal;
+        var hashIndex = -1;
+        /* detect if inside quotes by checking count of quotes before # */
+        for(var j = 0; j < val.length; j++){
+          if(val[j] === '#'){
+            var before = val.slice(0, j);
+            var dq = (before.match(/"/g) || []).length;
+            var sq = (before.match(/'/g) || []).length;
+            if(dq % 2 === 0 && sq % 2 === 0){
+              hashIndex = j;
+              break;
+            }
+          }
+        }
+        if(hashIndex >= 0){
+          val = val.slice(0, hashIndex);
+        }
+        var parsed = parseValue(val);
+        if(currentPath.length === 0){
+          obj[key] = parsed;
+        } else {
+          assignAtPath(currentPath, key, parsed);
+        }
+      }
+    }
+    return obj;
+  }
+
+  /* Convert JS object to YAML (simple serializer) */
+  function toYAML(obj, indent){
+    indent = indent || 0;
+    var ind = Array(indent+1).join('  ');
+    if(obj === null) return 'null';
+    if(typeof obj === 'string'){
+      /* decide whether to quote: if contains : or leading special chars or newline */
+      if(obj === '' || /[:\n\r]|^\s|^\-|\s$/.test(obj)){
+        return JSON.stringify(obj);
+      } else {
+        return obj;
+      }
+    }
+    if(typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
+    if(Array.isArray(obj)){
+      if(obj.length === 0) return '[]';
+      var out = '\n';
+      for(var i = 0; i < obj.length; i++){
+        var v = obj[i];
+        if(typeof v === 'object' && v !== null){
+          out += ind + '- ' + (typeof v === 'object' && !Array.isArray(v) ? '\n' + toYAML(v, indent+2) : toYAML(v,0)) + '\n';
+        } else {
+          out += ind + '- ' + toYAML(v,0) + '\n';
+        }
+      }
+      return out.replace(/\n+$/,'');
+    }
+    if(typeof obj === 'object'){
+      var keys = Object.keys(obj);
+      if(keys.length === 0) return '{}';
+      var out = '\n';
+      for(var k = 0; k < keys.length; k++){
+        var key = keys[k];
+        var val = obj[keys[k]];
+        var safeKey = /^[A-Za-z0-9_\-]+$/.test(key) ? key : JSON.stringify(key);
+        if(typeof val === 'object' && val !== null && !Array.isArray(val)){
+          out += ind + safeKey + ':' + toYAML(val, indent+1) + '\n';
+        } else {
+          var vtxt = toYAML(val,0);
+          /* arrays may start with newline */
+          if(Array.isArray(val) && vtxt[0] === '\n'){
+            out += ind + safeKey + ':' + vtxt + '\n';
+          } else {
+            out += ind + safeKey + ': ' + vtxt + '\n';
+          }
+        }
+      }
+      return out.replace(/\n+$/,'');
+    }
+    return String(obj);
+  }
+
+  /* Orchestrator: read textarea, detect front-matter, parse and convert */
+  (function(){
+    var convertBtn = document.getElementById('convert');
+    var clearBtn = document.getElementById('clear');
+    var inputTA = document.getElementById('input');
+    var outputTA = document.getElementById('output');
+    var copyBtn = document.getElementById('copy');
+
+    convertBtn.addEventListener('click', function(){
+      var raw = inputTA.value || '';
+      if(!raw.trim()){
+        setNote('No input provided.', 3000);
+        return;
+      }
+
+      /* detect TOML front-matter: starts with +++ on its own line */
+      var trimmedStart = raw.replace(/^\uFEFF/,'');
+      var fmMatch = trimmedStart.match(/^\s*\+\+\+\s*[\r\n]/);
+      var hasFront = false;
+      var tomlContent = raw;
+      if(fmMatch){
+        /* find closing +++ */
+        var parts = trimmedStart.split(/\r?\n/);
+        var endIndex = -1;
+        for(var i = 1; i < parts.length; i++){
+          if(/^\s*\+\+\+\s*$/.test(parts[i])){
+            endIndex = i;
+            break;
+          }
+        }
+        if(endIndex >= 0){
+          hasFront = true;
+          tomlContent = parts.slice(1, endIndex).join('\n');
+        } else {
+          /* no closing +++ — treat entire as TOML */
+          tomlContent = trimmedStart;
+        }
+      }
+
+      try{
+        var parsed = parseToml(tomlContent);
+        var yamlBody = toYAML(parsed, 0);
+        if(yamlBody[0] === '\n') yamlBody = yamlBody.slice(1);
+        var final = yamlBody;
+        if(hasFront){
+          final = '---\n' + final + '\n---';
+        }
+        outputTA.value = final;
+        setNote('Converted.', 2500);
+      }catch(e){
+        outputTA.value = '';
+        setNote('Conversion failed: ' + (e && e.message ? e.message : 'unknown error'), 5000);
+      }
+    });
+
+    clearBtn.addEventListener('click', function(){
+      inputTA.value = '';
+      outputTA.value = '';
+      setNote('');
+    });
+
+    copyBtn.addEventListener('click', function(){
+      var txt = outputTA.value;
+      if(!txt){
+        setNote('Nothing to copy.', 2000);
+        return;
+      }
+      /* Use clipboard API if available */
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(function(){
+          setNote('YAML copied to clipboard.', 2400);
+        }, function(){
+          fallbackCopy(txt);
+        });
+      } else {
+        fallbackCopy(txt);
+      }
+
+      /* fallback: create textarea and select */
+      function fallbackCopy(text){
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly','');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try{
+          document.execCommand('copy');
+          setNote('YAML copied to clipboard.', 2400);
+        }catch(e){
+          setNote('Copy not supported in this browser.', 3000);
+        }
+        document.body.removeChild(ta);
+      }
+    });
+
+  })();
+</script>
