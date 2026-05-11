@@ -1,9 +1,13 @@
 title: Web Apps
 description: A collection of mini web apps written in Vanilla HTML, CSS, and JavaScript for experiment and fun.
 show_downloads: false
-google_analytics: G-MKQK789F6L
+google_analytics: G-BJ58GF34YZ
 # theme: just-the-docs
 remote_theme: junian/jekyll-jtdocs
+url: "https://www.junian.dev" # the base hostname & protocol for your site, e.g. http://example.com
+baseurl: "/web-apps" # the subpath of your site, e.g. /blog
+repository: junian/web-apps # for github-metadata
+enforce_canonical_domain: true
 
 # markdown: CommonMarkGhPages
 # commonmark:
@@ -171,7 +175,7 @@ callouts:
 # Google Analytics Tracking (optional)
 # Supports a CSV of tracking ID strings (eg. "UA-1234567-89,G-1AB234CDE5")
 # Note: the main Just the Docs site does *not* use Google Analytics.
-ga_tracking: G-MKQK789F6L
+ga_tracking: G-BJ58GF34YZ
 # ga_tracking_anonymize_ip: true # Use GDPR compliant Google Analytics settings (true/nil by default)
 
 # <!-- just-the-docs end />
