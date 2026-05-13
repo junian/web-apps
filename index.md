@@ -25,3 +25,4 @@ Experimental Web Apps in Vanilla HTML, CSS, and JS. For experiment, prototyping,
 - [Picture-in-Picture Camera](./pip-camera/)
 - [CORS Test](./cors-test/)
 - [Canonical URL Checker](./canonical-url-checker/)
+- [Sitemap to URL List](./sitemap-to-url-list/)
